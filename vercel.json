@@ -1,3 +1,3 @@
 {
-  "buildCommand": "next build && npm run initdb"
+  "buildCommand": "next build && npx drizzle-kit push --force"
 }
