@@ -7,10 +7,6 @@ import { eq } from 'drizzle-orm';
 const configCache = new Map<string, { data: any; expiry: number }>();
 const CACHE_TTL = 60 * 1000; // 1 分钟缓存
 
-export function clearLlmConfigCache() {
-  configCache.clear();
-}
-
 export async function getLlmOriginConfigByProvider(providerId: string) {
   try {
     const result = await db.query.llmSettingsTable.findFirst({
