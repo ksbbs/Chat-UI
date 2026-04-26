@@ -1,4 +1,4 @@
-import { llmModels, llmSettingsTable, groupModels, groups, users } from './schema';
+import { llmModels, llmSettingsTable, groupModels, groups, users, chatFolders, chats } from './schema';
 import { relations } from 'drizzle-orm';
 
 export const modelsGroupsRelations = relations(llmModels, ({ many }) => ({
@@ -40,5 +40,17 @@ export const groupsUsersRelations = relations(users, ({ one }) => ({
     group: one(groups, {
         fields: [users.groupId],
         references: [groups.id],
+    }),
+}))
+
+// chat folder relations
+export const chatFoldersRelations = relations(chatFolders, ({ many }) => ({
+    chats: many(chats),
+}))
+
+export const chatsFoldersRelations = relations(chats, ({ one }) => ({
+    folder: one(chatFolders, {
+        fields: [chats.folderId],
+        references: [chatFolders.id],
     }),
 }))

@@ -2,7 +2,7 @@
 import { db } from '@/app/db';
 import { auth } from "@/auth";
 import { MCPToolResponse, MessageContent } from '@/types/llm';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { messages } from '@/app/db/schema';
 import { searchResultType, WebSearchResponse } from '@/types/search';
 
@@ -95,6 +95,31 @@ export const addMessageInServer = async (message: {
     .values({ userId: session.user.id, ...message })
     .returning();
   return result.id;
+}
+
+export const updateMessageInServer = async (messageId: number, content: MessageContent) => {
+  const session = await auth();
+  if (!session?.user.id) {
+    return { status: 'fail', message: 'please login first.' }
+  }
+  await db.update(messages)
+    .set({ content, updatedAt: new Date() })
+    .where(and(eq(messages.id, messageId), eq(messages.userId, session.user.id)));
+  return { status: 'success' }
+}
+
+export const deleteMessagesAfterInServer = async (chatId: string, afterMessageId: number) => {
+  const session = await auth();
+  if (!session?.user.id) {
+    return { status: 'fail', message: 'please login first.' }
+  }
+  await db.delete(messages)
+    .where(and(
+      eq(messages.chatId, chatId),
+      eq(messages.userId, session.user.id),
+      sql`${messages.id} > ${afterMessageId}`
+    ));
+  return { status: 'success' }
 }
 
 export const updateMessageWebSearchInServer = async (

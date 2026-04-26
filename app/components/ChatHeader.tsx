@@ -1,20 +1,21 @@
 import React from 'react'
 import { useRouter } from 'next/navigation';
 import ModelSelect from '@/app/components/ModelSelect';
-import { Button, Popconfirm, PopconfirmProps, Tooltip } from "antd";
-import { DeleteOutlined } from '@ant-design/icons';
+import { Button, Popconfirm, PopconfirmProps, Tooltip, Select } from "antd";
+import { DeleteOutlined, BulbOutlined } from '@ant-design/icons';
 import useSidebarCollapsedStore from '@/app/store/sidebarCollapsed';
 import ToggleSidebar from "@/app/images/hideSidebar.svg";
 import useChatStore from '@/app/store/chat';
 import useChatListStore from '@/app/store/chatList';
 import { deleteChatInServer } from '@/app/chat/actions/chat';
 import { useTranslations } from 'next-intl';
+import { ThinkingIntensity } from '@/types/llm';
 
 const ChatHeader = (props: { isActionsHidden?: boolean }) => {
   const t = useTranslations('Chat');
   const router = useRouter();
   const { chatList, setChatList } = useChatListStore();
-  const { chat } = useChatStore();
+  const { chat, thinkingIntensity, setThinkingIntensity } = useChatStore();
   const { isSidebarCollapsed, toggleSidebar } = useSidebarCollapsedStore();
 
   const deleteChat = async () => {
@@ -50,6 +51,20 @@ const ChatHeader = (props: { isActionsHidden?: boolean }) => {
           />
         }
         <ModelSelect chatId={chat?.id || null} />
+        <Select
+          size="small"
+          value={thinkingIntensity}
+          onChange={setThinkingIntensity}
+          className="ml-2"
+          style={{ width: 90 }}
+          suffixIcon={<BulbOutlined />}
+          options={[
+            { value: 'none', label: t('thinkingNone') },
+            { value: 'low', label: t('thinkingLow') },
+            { value: 'medium', label: t('thinkingMedium') },
+            { value: 'high', label: t('thinkingHigh') },
+          ]}
+        />
       </div>
       {!props.isActionsHidden && <div className='mr-2'>
         {/* <Button type='text'

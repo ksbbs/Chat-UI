@@ -3,6 +3,10 @@ import { db } from '@/app/db';
 import { eq, and, sql } from 'drizzle-orm'
 import { chats, usageReport, users } from '@/app/db/schema';
 
+// 配额检查缓存，30 秒 TTL
+const quotaCache = new Map<string, { data: { tokenPassFlag: boolean; modelPassFlag: boolean }; expiry: number }>();
+const QUOTA_CACHE_TTL = 30 * 1000;
+
 type UsageType = {
   inputTokens: number,
   outputTokens: number,
@@ -22,7 +26,13 @@ type UsageDetail = {
 
 export const isUserWithinQuota = async (userId: string, providerId: string, modelId: string):
   Promise<{ tokenPassFlag: boolean, modelPassFlag: boolean }> => {
-  const result = await db.query.users.findFirst({
+  const cacheKey = `${userId}:${providerId}:${modelId}`;
+  const cached = quotaCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiry) {
+    return cached.data;
+  }
+
+  const userGroupResult = await db.query.users.findFirst({
     where: eq(users.id, userId),
     with: {
       group: {
@@ -59,8 +69,8 @@ export const isUserWithinQuota = async (userId: string, providerId: string, mode
   let tokenPassFlag = false;
   let modelPassFlag = false;
 
-  if (result && result.group) {
-    const { tokenLimitType, monthlyTokenLimit } = result.group;
+  if (userGroupResult && userGroupResult.group) {
+    const { tokenLimitType, monthlyTokenLimit } = userGroupResult.group;
     const monthlyTokenLimitNumber = monthlyTokenLimit || 0;
     if (tokenLimitType === 'unlimited') {
       tokenPassFlag = true;
@@ -69,8 +79,8 @@ export const isUserWithinQuota = async (userId: string, providerId: string, mode
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 
       let realMonthlyTotalTokens = 0;
-      if (result.usageUpdatedAt > firstDayOfMonth) {
-        realMonthlyTotalTokens = result.currentMonthTotalTokens;
+      if (userGroupResult.usageUpdatedAt > firstDayOfMonth) {
+        realMonthlyTotalTokens = userGroupResult.currentMonthTotalTokens;
       }
 
       if (realMonthlyTotalTokens < monthlyTokenLimitNumber) {
@@ -80,10 +90,10 @@ export const isUserWithinQuota = async (userId: string, providerId: string, mode
       }
     }
 
-    if (result.group.modelType === 'all') {
+    if (userGroupResult.group.modelType === 'all') {
       modelPassFlag = true;
     } else {
-      const hasMatchingModel = result.group.models?.some(
+      const hasMatchingModel = userGroupResult.group.models?.some(
         (groupModel) =>
           groupModel.model.providerId === providerId &&
           groupModel.model.name === modelId
@@ -91,12 +101,13 @@ export const isUserWithinQuota = async (userId: string, providerId: string, mode
       modelPassFlag = hasMatchingModel || false;
     }
   } else {
-    tokenPassFlag = false;
+    // 用户没有分组时，默认放行（无限制）
+    tokenPassFlag = true;
+    modelPassFlag = true;
   }
-  return {
-    tokenPassFlag,
-    modelPassFlag,
-  }
+  const quotaResult = { tokenPassFlag, modelPassFlag };
+  quotaCache.set(cacheKey, { data: quotaResult, expiry: Date.now() + QUOTA_CACHE_TTL });
+  return quotaResult;
 }
 
 export const updateUsage = async (userId: string, usage: UsageDetail) => {

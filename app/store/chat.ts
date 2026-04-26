@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ChatType } from '@/types/llm';
+import { ChatType, ThinkingIntensity } from '@/types/llm';
 import { updateChatInServer } from '@/app/chat/actions/chat';
 
 interface IChatStore {
@@ -9,11 +9,13 @@ interface IChatStore {
   builtInWebSearch: boolean;
   historyType: 'all' | 'none' | 'count';
   historyCount: number;
+  thinkingIntensity: ThinkingIntensity;
   setHistoryType: (chatId: string, newType: 'all' | 'none' | 'count') => void;
   setHistoryCount: (chatId: string, newCount: number) => void;
   setChat: (chat: ChatType) => void;
   setWebSearchEnabled: (flag: boolean) => void;
   setBuiltInImageGen: (flag: boolean) => void;
+  setThinkingIntensity: (intensity: ThinkingIntensity) => void;
   initializeChat: (chatInfo: ChatType) => void;
 }
 
@@ -24,6 +26,7 @@ const useChatStore = create<IChatStore>((set) => ({
   builtInWebSearch: false,
   historyType: 'count',
   historyCount: 5,
+  thinkingIntensity: 'none',
   setHistoryType: (chatId: string, newType: 'all' | 'none' | 'count') => {
     set((state) => {
       updateChatInServer(chatId, { historyType: newType })
@@ -47,6 +50,10 @@ const useChatStore = create<IChatStore>((set) => ({
 
   setBuiltInImageGen: (flag: boolean) => {
     set({ builtInImageGen: flag });
+  },
+
+  setThinkingIntensity: (intensity: ThinkingIntensity) => {
+    set({ thinkingIntensity: intensity });
   },
 
   initializeChat: async (chatInfo: ChatType) => {

@@ -52,6 +52,11 @@ export default class GeminiApi implements LLMApi {
               }
             };
           }
+          if (item.type === 'file') {
+            return {
+              text: `[File: ${item.fileName}]\n${item.fileContent}\n\n`
+            };
+          }
         }).filter(Boolean);
 
         return {
@@ -362,6 +367,18 @@ export default class GeminiApi implements LLMApi {
             "Text",
             "Image"
           ]
+        }
+      }
+    }
+    // Gemini thinking config
+    if (options.config.thinkingIntensity && options.config.thinkingIntensity !== 'none') {
+      generationConfig = {
+        ...generationConfig,
+        "generationConfig": {
+          ...(generationConfig as any).generationConfig || {},
+          "thinkingConfig": {
+            "thinkingBudget": { low: 1024, medium: 8192, high: 24576 }[options.config.thinkingIntensity]
+          }
         }
       }
     }

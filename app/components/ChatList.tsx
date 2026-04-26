@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Image from "next/image";
 import Link from 'next/link';
 import clsx from 'clsx';
-import { Modal, Input, Skeleton } from 'antd';
-import { ChatType } from '@/types/llm';
-import { EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { Modal, Input, Skeleton, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
+import { ChatType, ChatFolderType } from '@/types/llm';
+import { EditOutlined, DeleteOutlined, PlusOutlined, SearchOutlined, ExportOutlined, ImportOutlined, FolderOutlined, FolderAddOutlined } from '@ant-design/icons';
 import { usePathname, useRouter } from 'next/navigation';
 import { message } from 'antd';
 import ChatItem from './ChatItem';
@@ -33,17 +33,40 @@ const ChatList = () => {
   const [renameChatId, setRenameChatId] = useState('');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [chatListStatus, setChatListStatus] = useState('init');
+  const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [renameFolderId, setRenameFolderId] = useState<number | null>(null);
+  const [isRenameFolderModalOpen, setIsRenameFolderModalOpen] = useState(false);
+  const [renameFolderName, setRenameFolderName] = useState('');
+  const importFileRef = useRef<HTMLInputElement>(null);
 
-  const { chatList, setChatList, updateChat, setNewTitle } = useChatListStore();
+  const {
+    chatList, folders, setChatList, updateChat, setNewTitle,
+    searchKeyword, setSearchKeyword, filteredChatList,
+    exportSingleChat, exportAllChats, importChats,
+    loadFolders, createFolder, deleteFolder, renameFolder, moveChatToFolder
+  } = useChatListStore();
   const { chat, setChat } = useChatStore();
   const { status } = useSession();
 
-  const { top8ChatsWithoutBot, isOver8, botChats } = useMemo(() => {
-    const nonBotChats = chatList.filter(chat => !chat.isWithBot);
-    const top8 = nonBotChats.slice(0, 8);
-    const isOver = nonBotChats.length > 8;
+  const displayChatList = filteredChatList();
 
-    const sortedBotChats = chatList
+  // Separate chats into folder-based and recent (no folder)
+  const { recentChatsWithoutBot, folderChats, isOver8, botChats } = useMemo(() => {
+    const nonBotChats = displayChatList.filter(chat => !chat.isWithBot);
+
+    // Recent chats = those without a folder
+    const recent = nonBotChats.filter(chat => !chat.folderId);
+    const top8 = recent.slice(0, 8);
+    const isOver = recent.length > 8;
+
+    // Build folder-based chat map
+    const folderChatMap: Record<number, ChatType[]> = {};
+    for (const f of folders) {
+      folderChatMap[f.id] = nonBotChats.filter(chat => chat.folderId === f.id);
+    }
+
+    const sortedBotChats = displayChatList
       .filter(chat => chat.isWithBot)
       .sort((a, b) => {
         if (a?.isStar && a.starAt && b?.isStar && b.starAt) {
@@ -59,11 +82,12 @@ const ChatList = () => {
       });
 
     return {
-      top8ChatsWithoutBot: top8,
+      recentChatsWithoutBot: top8,
+      folderChats: folderChatMap,
       isOver8: isOver,
       botChats: sortedBotChats
     };
-  }, [chatList]);
+  }, [displayChatList, folders]);
 
   useEffect(() => {
     const fetchAllChats = async () => {
@@ -82,7 +106,8 @@ const ChatList = () => {
       }
     };
     fetchAllChats();
-  }, [status, setChatList, t]);
+    loadFolders();
+  }, [status, setChatList, loadFolders, t]);
 
   const handleOpenChange = (isOpen: boolean, chatId: string) => {
     setHighlightedChat(isOpen ? chatId : '');
@@ -136,6 +161,54 @@ const ChatList = () => {
     } else if (action === 'top') {
       const chat = chatList.find(c => c.id === chatId);
       toggleStar(chatId, !chat?.isStar);
+    } else if (action === 'export') {
+      exportSingleChat(chatId);
+    } else if (action.startsWith('folder-')) {
+      if (action === 'folder-none') {
+        handleMoveToFolder(chatId, null);
+      } else {
+        const folderId = parseInt(action.replace('folder-', ''), 10);
+        handleMoveToFolder(chatId, folderId);
+      }
+    }
+  };
+
+  // Handle moving a chat to a folder
+  const handleMoveToFolder = (chatId: string, folderId: number | null) => {
+    moveChatToFolder(chatId, folderId);
+  };
+
+  // Handle creating a new folder
+  const handleCreateFolder = () => {
+    if (newFolderName.trim()) {
+      createFolder(newFolderName.trim()).then((folder) => {
+        if (folder) {
+          message.success(t('newFolder'));
+        }
+      });
+      setNewFolderName('');
+      setIsFolderModalOpen(false);
+    }
+  };
+
+  // Handle folder context menu actions
+  const handleFolderAction = (action: string, folderId: number) => {
+    if (action === 'renameFolder') {
+      const folder = folders.find(f => f.id === folderId);
+      setRenameFolderName(folder?.name || '');
+      setRenameFolderId(folderId);
+      setIsRenameFolderModalOpen(true);
+    } else if (action === 'deleteFolder') {
+      deleteFolder(folderId).then(() => {
+        message.success(t('deleteSuccess'));
+      });
+    }
+  };
+
+  const handleSaveFolderRename = () => {
+    if (renameFolderName.trim() && renameFolderId) {
+      renameFolder(renameFolderId, renameFolderName.trim());
+      setIsRenameFolderModalOpen(false);
     }
   };
 
@@ -146,16 +219,77 @@ const ChatList = () => {
     }
   };
 
-  // 常规聊天的菜单项
-  const getStandardMenuItems = (isStar: boolean): MenuProps['items'] => {
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const result = await importChats(file);
+    if (result.success && result.count > 0) {
+      message.success(t('importSuccess'));
+    } else {
+      message.error(t('importFailed'));
+    }
+    // Reset the file input so the same file can be selected again
+    if (importFileRef.current) {
+      importFileRef.current.value = '';
+    }
+  };
+
+  // Build folder menu items for moving a chat (not used directly, but getStandardMenuItems uses folders)
+
+  // Folder context menu items
+  const getFolderContextMenuItems = (folderId: number): MenuProps['items'] => {
+    return [
+      {
+        label: t('rename'),
+        icon: <EditOutlined />,
+        key: 'renameFolder',
+      },
+      {
+        type: 'divider' as const,
+      },
+      {
+        label: t('deleteFolder'),
+        icon: <DeleteOutlined />,
+        key: 'deleteFolder',
+      },
+    ];
+  };
+
+  // 常规聊天的菜单项 - with folder move option
+  const getStandardMenuItems = (isStar: boolean, chatId: string): MenuProps['items'] => {
+    const folderMoveItems = folders.length > 0 ? [
+      {
+        label: t('moveToFolder'),
+        icon: <FolderOutlined />,
+        key: 'moveToFolder',
+        children: [
+          ...folders.map(folder => ({
+            label: folder.name,
+            key: `folder-${folder.id}`,
+          })),
+          { label: t('noFolder'), key: 'folder-none' },
+        ],
+      },
+      { type: 'divider' as const },
+    ] : [];
+
     return [
       {
         label: t('rename'),
         icon: <EditOutlined />,
         key: 'edit',
       },
+      ...folderMoveItems,
       {
-        type: 'divider',
+        type: 'divider' as const,
+      },
+      {
+        label: t('exportChat'),
+        icon: <ExportOutlined />,
+        key: 'export',
+      },
+      {
+        type: 'divider' as const,
       },
       {
         label: t('delete'),
@@ -174,7 +308,15 @@ const ChatList = () => {
         key: 'top',
       },
       {
-        type: 'divider',
+        type: 'divider' as const,
+      },
+      {
+        label: t('exportChat'),
+        icon: <ExportOutlined />,
+        key: 'export',
+      },
+      {
+        type: 'divider' as const,
       },
       {
         label: t('delete'),
@@ -182,6 +324,28 @@ const ChatList = () => {
         icon: <DeleteIcon width={20} height={20} />,
       },
     ];
+  };
+
+  // Handle menu click that includes folder move
+  const handleStandardMenuClick = (e: { key: string; domEvent?: Event }, chatId: string) => {
+    const key = e.key;
+    if (key === 'delete') {
+      deleteChat(chatId);
+    } else if (key === 'edit') {
+      const chat = chatList.find(c => c.id === chatId);
+      setNewChatName(chat?.title || '');
+      setRenameChatId(chatId);
+      setIsEditModalOpen(true);
+    } else if (key === 'export') {
+      exportSingleChat(chatId);
+    } else if (key.startsWith('folder-')) {
+      if (key === 'folder-none') {
+        handleMoveToFolder(chatId, null);
+      } else {
+        const folderId = parseInt(key.replace('folder-', ''), 10);
+        handleMoveToFolder(chatId, folderId);
+      }
+    }
   };
 
   return (
@@ -192,9 +356,80 @@ const ChatList = () => {
             <PlusOutlined className='mr-2' style={{ color: '#0057ff' }} />{t('newChat')}
           </div>
         </Link>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          placeholder={t('searchPlaceholder')}
+          value={searchKeyword}
+          onChange={(e) => setSearchKeyword(e.target.value)}
+          allowClear
+          className="mt-2"
+          style={{ borderRadius: '12px' }}
+        />
       </div>
 
-      <div className="flex flex-col flex-grow rounded-xl h-0  mt-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+      <div className="flex flex-col flex-grow rounded-xl h-0 mt-4 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+        {/* Folder sections */}
+        {folders.map((folder) => (
+          <MenuSection
+            key={folder.id}
+            title={folder.name}
+            icon={<FolderOutlined style={{ fontSize: '16px' }} />}
+            defaultExpanded={true}
+          >
+            <div className="flex items-center justify-between mr-4 ml-4">
+              <span className="text-xs text-gray-400">
+                {folderChats[folder.id]?.length || 0} {t('piece')}
+              </span>
+              <Dropdown
+                menu={{
+                  items: getFolderContextMenuItems(folder.id),
+                  onClick: (e) => handleFolderAction(e.key, folder.id),
+                }}
+                trigger={['click']}
+              >
+                <span className="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
+                  <EditOutlined />
+                </span>
+              </Dropdown>
+            </div>
+            <ul className="pr-4">
+              {(folderChats[folder.id] || []).map((chat) => (
+                <Link key={chat.id} href={`/chat/${chat.id}`}>
+                  <ChatItem
+                    chat={chat}
+                    isActive={chat.id === currentChatId}
+                    isHighlighted={highlightedChat === chat.id}
+                    onOpenChange={handleOpenChange}
+                    onAction={handleChatAction}
+                    menuItems={getStandardMenuItems(Boolean(chat.isStar), chat.id)}
+                    className="ml-5 pl-3"
+                  >
+                    <div className="whitespace-nowrap w-0 grow overflow-hidden text-ellipsis">
+                      {chat.title}
+                    </div>
+                  </ChatItem>
+                </Link>
+              ))}
+              {(folderChats[folder.id] || []).length === 0 && (
+                <div className='flex flex-col'>
+                  <span className='my-2 text-xs text-gray-400 ml-8'>{t('historyNotice')}</span>
+                </div>
+              )}
+            </ul>
+          </MenuSection>
+        ))}
+
+        {/* Create folder button */}
+        <div className="px-4 mb-2">
+          <button
+            onClick={() => setIsFolderModalOpen(true)}
+            className="w-full flex items-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+          >
+            <FolderAddOutlined />
+            <span>{t('newFolder')}</span>
+          </button>
+        </div>
+
         {/* 最近聊天部分 */}
         <MenuSection
           title={t('recentChat')}
@@ -207,14 +442,14 @@ const ChatList = () => {
             </div>
           ) : (
             <>
-              {top8ChatsWithoutBot.length === 0 && (
+              {recentChatsWithoutBot.length === 0 && (
                 <div className='flex flex-col'>
                   <span className='my-2 text-xs text-gray-400 ml-8'>{t('historyNotice')}</span>
                 </div>
               )}
 
               <ul className="pr-4">
-                {top8ChatsWithoutBot.map((chat) => (
+                {recentChatsWithoutBot.map((chat) => (
                   <Link key={chat.id} href={`/chat/${chat.id}`}>
                     <ChatItem
                       chat={chat}
@@ -222,7 +457,7 @@ const ChatList = () => {
                       isHighlighted={highlightedChat === chat.id}
                       onOpenChange={handleOpenChange}
                       onAction={handleChatAction}
-                      menuItems={getStandardMenuItems(Boolean(chat.isStar))}
+                      menuItems={getStandardMenuItems(Boolean(chat.isStar), chat.id)}
                       className="ml-5 pl-3"
                     >
                       <div className="whitespace-nowrap w-0 grow overflow-hidden text-ellipsis">
@@ -313,6 +548,65 @@ const ChatList = () => {
           </ul>
         </MenuSection>
       </div>
+
+      {/* Export All / Import buttons at the bottom of sidebar */}
+      <div className="flex flex-row gap-2 mr-4 mt-2">
+        <button
+          onClick={() => exportAllChats()}
+          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          <ExportOutlined />
+          <span>{t('exportAllChats')}</span>
+        </button>
+        <button
+          onClick={() => importFileRef.current?.click()}
+          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          <ImportOutlined />
+          <span>{t('importChat')}</span>
+        </button>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".json"
+          className="hidden"
+          onChange={handleImportFile}
+        />
+      </div>
+
+      {/* Create folder modal */}
+      <Modal
+        title={t('newFolder')}
+        open={isFolderModalOpen}
+        onOk={handleCreateFolder}
+        onCancel={() => setIsFolderModalOpen(false)}
+        cancelText={t('cancel')}
+        okText={t('confirm')}
+      >
+        <Input
+          value={newFolderName}
+          onChange={(e) => setNewFolderName(e.target.value)}
+          placeholder={t('folderName')}
+          style={{ marginTop: '1em', marginBottom: '1em' }}
+        />
+      </Modal>
+
+      {/* Rename folder modal */}
+      <Modal
+        title={t('rename')}
+        open={isRenameFolderModalOpen}
+        onOk={handleSaveFolderRename}
+        onCancel={() => setIsRenameFolderModalOpen(false)}
+        cancelText={t('cancel')}
+        okText={t('save')}
+      >
+        <Input
+          value={renameFolderName}
+          onChange={(e) => setRenameFolderName(e.target.value)}
+          placeholder={t('folderName')}
+          style={{ marginTop: '1em', marginBottom: '1em' }}
+        />
+      </Modal>
 
       {/* 编辑聊天名称的弹窗 */}
       <Modal

@@ -119,6 +119,8 @@ export default async function proxyGeminiStream(response: Response,
         const metadataString = `data: ${JSON.stringify({ metadata: metadataEvent })}\n\n`;
         controller.enqueue(new TextEncoder().encode(metadataString));
       }
+      controller.close();
+      // 流关闭后异步更新用量
       updateUsage(messageInfo.userId, {
         chatId: messageInfo.chatId,
         date: new Date().toISOString().split('T')[0],
@@ -129,7 +131,6 @@ export default async function proxyGeminiStream(response: Response,
         outputTokens: completionTokens  || 0,
         totalTokens: totalTokens  || 0,
       });
-      controller.close();
     }
   });
 

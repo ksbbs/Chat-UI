@@ -5,6 +5,7 @@ import { AntdRegistry } from '@ant-design/nextjs-registry';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import { SessionProvider } from 'next-auth/react';
+import ThemeProvider from '@/app/components/ThemeProvider';
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,12 +29,20 @@ export default async function RootLayout({
   const locale = await getLocale();
   const messages = await getMessages();
   return (
-    <html lang={locale}>
+    <html lang={locale} suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#1677ff" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+      </head>
       <body>
         <NextIntlClientProvider messages={messages}>
           <SessionProvider>
             <AntdRegistry>
-              {children}
+              <ThemeProvider>
+                {children}
+              </ThemeProvider>
             </AntdRegistry>
           </SessionProvider>
         </NextIntlClientProvider>

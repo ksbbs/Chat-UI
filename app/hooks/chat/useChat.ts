@@ -6,8 +6,8 @@ import useChatListStore from '@/app/store/chatList';
 import useMcpServerStore from '@/app/store/mcp';
 import { generateTitle, getProviderInstance } from '@/app/utils';
 import useModelListStore from '@/app/store/modelList';
-import { getChatInfoInServer } from '@/app/chat/actions/chat';
-import { addMessageInServer, getMessagesInServer, deleteMessageInServer, clearMessageInServer, updateMessageWebSearchInServer } from '@/app/chat/actions/message';
+import { getChatInfoInServer, forkChat } from '@/app/chat/actions/chat';
+import { addMessageInServer, getMessagesInServer, deleteMessageInServer, clearMessageInServer, updateMessageWebSearchInServer, updateMessageInServer, deleteMessagesAfterInServer } from '@/app/chat/actions/message';
 import useGlobalConfigStore from '@/app/store/globalConfig';
 import { getSearchResult } from '@/app/chat/actions/chat';
 import { searchResultType, WebSearchResponse } from '@/types/search';
@@ -39,7 +39,7 @@ const useChat = (chatId: string) => {
   }, [throttledSetResponseMessage]);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const [userSendCount, setUserSendCount] = useState(0);
-  const { chat, initializeChat, setWebSearchEnabled, builtInImageGen, webSearchEnabled, historyType, historyCount } = useChatStore();
+  const { chat, initializeChat, setWebSearchEnabled, builtInImageGen, webSearchEnabled, historyType, historyCount, thinkingIntensity } = useChatStore();
   const { setNewTitle } = useChatListStore();
   const { chatNamingModel } = useGlobalConfigStore();
   const { selectedTools } = useMcpServerStore();
@@ -95,7 +95,7 @@ const useChat = (chatId: string) => {
     setResponseStatus("pending");
     const options: ChatOptions = {
       messages: messages,
-      config: { model: currentModel.id },
+      config: { model: currentModel.id, thinkingIntensity },
       chatId: chatId,
       buildinTools,
       mcpTools,
@@ -200,6 +200,40 @@ const useChat = (chatId: string) => {
     });
   }
 
+  const editMessage = async (index: number, newContent: MessageContent) => {
+    const msg = messageList[index];
+    if (!msg || msg.id === undefined) return;
+
+    // Update the message content in DB
+    await updateMessageInServer(msg.id as number, newContent);
+
+    // Delete all messages after this one in DB
+    await deleteMessagesAfterInServer(chatId, msg.id as number);
+
+    // Update local state: replace content and truncate after
+    const updatedList = messageList.slice(0, index).map((m, i) =>
+      i === index - 1 ? { ...m, content: newContent } : m
+    );
+    // Actually the message at `index` is the one being edited
+    const newList = messageList.slice(0, index);
+    newList.push({ ...msg, content: newContent });
+    setMessageList(newList);
+
+    // Re-send the edited message
+    handleSubmit(newContent);
+  }
+
+  const forkFromMessage = async (index: number) => {
+    try {
+      const result = await forkChat(chatId, index);
+      if (result.status === 'success' && result.data) {
+        router.push(`/chat/${result.data.chatId}?f=home`);
+      }
+    } catch (error) {
+      console.error('Fork from message error:', error);
+    }
+  }
+
   const addBreak = async () => {
     if (messageList.length > 0 && messageList.at(-1)?.type === 'break') {
       return;
@@ -263,14 +297,26 @@ const useChat = (chatId: string) => {
 
     try {
       setSearchStatus("searching");
-      const textContent = typeof message === 'string' ? message : '';
+      const textContent = typeof message === 'string' ? message :
+        Array.isArray(message) ? message.filter(part => part.type === 'text').map(part => part.text).join(' ') : '';
       if (textContent) {
         const searchResult = await getSearchResult(textContent);
 
         if (searchResult.status === 'success') {
           searchResponse = searchResult.data || undefined;
           const referenceContent = `\`\`\`json\n${JSON.stringify(searchResult, null, 2)}\n\`\`\``;
-          realSendMessage = REFERENCE_PROMPT.replace('{question}', textContent).replace('{references}', referenceContent);
+          const searchPrompt = REFERENCE_PROMPT.replace('{question}', textContent).replace('{references}', referenceContent);
+          // If original message was an array (with files/images), preserve those parts and replace text
+          if (Array.isArray(message)) {
+            realSendMessage = message.map(part => {
+              if (part.type === 'text') {
+                return { ...part, text: searchPrompt };
+              }
+              return part;
+            });
+          } else {
+            realSendMessage = searchPrompt;
+          }
           setSearchStatus("done");
           searchStatus = 'done';
         } else {
@@ -515,6 +561,8 @@ const useChat = (chatId: string) => {
     clearHistory,
     stopChat,
     retryMessage,
+    editMessage,
+    forkFromMessage,
     addBreak,
     setIsUserScrolling,
   };

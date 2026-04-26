@@ -51,6 +51,12 @@ export default class ClaudeApi implements LLMApi {
               }
             };
           }
+          if (item.type === 'file') {
+            return {
+              type: 'text',
+              text: `[File: ${item.fileName}]\n${item.fileContent}\n\n`
+            };
+          }
         }).filter(Boolean);
 
         return {
@@ -369,6 +375,12 @@ export default class ClaudeApi implements LLMApi {
           'max_tokens': 2048,
           "model": `${options.config.model}`,
           "messages": messages,
+          ...(options.config.thinkingIntensity && options.config.thinkingIntensity !== 'none' ? {
+            thinking: {
+              type: "enabled",
+              budget_tokens: { low: 1024, medium: 8192, high: 32000 }[options.config.thinkingIntensity]
+            }
+          } : {}),
           ...toolsParameter
         }),
         signal: this.controller.signal,

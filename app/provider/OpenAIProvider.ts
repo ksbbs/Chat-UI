@@ -98,6 +98,12 @@ export default class ChatGPTApi implements LLMApi {
               }
             };
           }
+          if (item.type === 'file') {
+            return {
+              type: 'text',
+              text: `[File: ${item.fileName}]\n${item.fileContent}\n\n`
+            };
+          }
         }).filter(Boolean);
 
         return {
@@ -489,6 +495,10 @@ export default class ChatGPTApi implements LLMApi {
           "stream_options": {
             "include_usage": true
           },
+          ...(options.config.thinkingIntensity && options.config.thinkingIntensity !== 'none'
+            && /^(o1|o3|o4)/.test(options.config.model)
+            ? { reasoning_effort: options.config.thinkingIntensity }
+            : {}),
           ...toolsParameter
         }),
         signal: this.controller.signal,

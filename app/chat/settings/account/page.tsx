@@ -6,6 +6,7 @@ import { TranslationOutlined } from '@ant-design/icons';
 import { useSession, signOut } from 'next-auth/react';
 import { useTranslations } from 'next-intl';
 import useUserSettingsStore from '@/app/store/userSettings';
+import useThemeStore from '@/app/store/theme';
 
 type FormValues = {
   oldPassword: string;
@@ -22,6 +23,7 @@ const AccountPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { data: session } = useSession();
   const { messageSendShortcut, setMessageSendShortcut, loadUserSettings } = useUserSettingsStore();
+  const { theme, setTheme } = useThemeStore();
   const [usageInfo, setUsageInfo] = useState<{
     todayTotalTokens: number;
     currentMonthTotalTokens: number;
@@ -168,6 +170,25 @@ const AccountPage = () => {
             options={[
               { value: 'zh', label: '简体中文' },
               { value: 'en', label: 'English' },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className='flex flex-row justify-between mt-6 p-6 border border-gray-200 rounded-md'>
+        <div className='flex items-center'>
+          <span className='text-sm font-medium'>{t('theme')}</span>
+        </div>
+        <div className='flex items-center'>
+          <Select
+            value={theme}
+            onChange={(value: 'light' | 'dark' | 'system') => {
+              setTheme(value);
+            }}
+            options={[
+              { value: 'light', label: t('lightTheme') },
+              { value: 'dark', label: t('darkTheme') },
+              { value: 'system', label: t('systemTheme') },
             ]}
           />
         </div>

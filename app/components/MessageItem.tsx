@@ -1,12 +1,14 @@
-import React, { useState, useEffect, memo, useMemo } from 'react';
-import { Message } from '@/types/llm';
+import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
+import { Message, MessageContent } from '@/types/llm';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
-import { Button, Tooltip, message, Alert, Avatar, Popconfirm, Image as AntdImage } from "antd";
-import { CopyOutlined, SyncOutlined, DeleteOutlined, DownOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Tooltip, message, Alert, Avatar, Popconfirm, Image as AntdImage, Input } from "antd";
+import { CopyOutlined, SyncOutlined, DeleteOutlined, DownOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined, EditOutlined, SaveOutlined, CloseOutlined, ForkOutlined, FileOutlined } from '@ant-design/icons';
 import useModelListStore from '@/app/store/modelList';
 import ThinkingIcon from '@/app/images/thinking.svg';
 import MarkdownRender from '@/app/components/Markdown';
 import { useTranslations } from 'next-intl';
+
+const { TextArea } = Input;
 
 const MessageItem = memo((props: {
   item: Message,
@@ -14,18 +16,32 @@ const MessageItem = memo((props: {
   isConsecutive: boolean;
   role: 'assistant' | 'user' | 'system',
   retryMessage: (index: number) => void,
-  deleteMessage: (index: number) => void
+  deleteMessage: (index: number) => void,
+  editMessage?: (index: number, newContent: MessageContent) => void,
+  forkFromMessage?: (index: number) => void,
 }
 ) => {
   const t = useTranslations('Chat');
   const { allProviderListByKey } = useModelListStore();
   const [images, setImages] = useState<string[]>([]);
   const [plainText, setPlainText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  const editTextRef = useRef<any>(null);
+
   useEffect(() => {
     if (Array.isArray(props.item.content) && props.item.content.length > 0) {
       const images = props.item.content.filter((item: any) => item.type === 'image').map((item: any) => item.data);
       setImages(images);
-      const plainText = props.item.content.filter((i) => i.type === 'text').map((it) => it.text).join('')
+      const plainText = props.item.content
+        .filter((i) => i.type === 'text' || i.type === 'file')
+        .map((it) => {
+          if (it.type === 'file') {
+            return `[File: ${(it as any).fileName}]\n${(it as any).fileContent}`;
+          }
+          return it.text;
+        })
+        .join('\n');
       setPlainText(plainText);
     } else {
       setPlainText(props.item.content as string);
@@ -162,6 +178,23 @@ const MessageItem = memo((props: {
     </div>
   }
   if (props.role === 'user') {
+    const handleStartEdit = () => {
+      setEditText(plainText);
+      setIsEditing(true);
+      setTimeout(() => editTextRef.current?.focus(), 50);
+    };
+
+    const handleSaveEdit = () => {
+      if (editText.trim() && editText !== plainText) {
+        props.editMessage?.(props.index, editText);
+      }
+      setIsEditing(false);
+    };
+
+    const handleCancelEdit = () => {
+      setIsEditing(false);
+    };
+
     return <div className="flex container mx-auto pl-4 pr-2 max-w-screen-md w-full flex-col justify-center items-center" >
       <div className='items-start flex max-w-3xl text-justify w-full my-0 pt-0 pb-1 flex-row-reverse'>
         <div className='flex ml-10 flex-col items-end group'>
@@ -182,22 +215,60 @@ const MessageItem = memo((props: {
                 );
               })}
           </div>
-          {typeof props.item.content === 'string' &&
-            <div
-              className='w-fit px-4 py-3 markdown-body !min-w-4 !bg-gray-100 text-base rounded-xl ml-10'
-              style={{ maxWidth: '44rem' }}
-            >
-              <MarkdownRender content={props.item.content} />
-            </div>}
-          {Array.isArray(props.item.content) &&
-            props.item.content.filter((i) => i.type === 'text').map((it) => it.text).join('') !== '' &&
-            <div
-              className='w-fit px-4 py-3 markdown-body !min-w-4 !bg-gray-100 text-base rounded-xl ml-10'
-              style={{ maxWidth: '44rem' }}
-            >
-              <MarkdownRender content={props.item.content.filter((i) => i.type === 'text').map((it) => it.text).join('')} />
-            </div>}
-          <div className='invisible flex flex-row-reverse pr-1 mt-1 group-hover:visible'>
+          {isEditing ? (
+            <div className='w-full ml-10' style={{ maxWidth: '44rem' }}>
+              <TextArea
+                ref={editTextRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                autoSize={{ minRows: 2, maxRows: 10 }}
+                onPressEnter={(e) => {
+                  if (!e.shiftKey) {
+                    e.preventDefault();
+                    handleSaveEdit();
+                  }
+                }}
+              />
+              <div className='flex flex-row-reverse gap-1 mt-1'>
+                <Button size='small' type="primary" icon={<SaveOutlined />} onClick={handleSaveEdit}>
+                  {t('save')}
+                </Button>
+                <Button size='small' icon={<CloseOutlined />} onClick={handleCancelEdit}>
+                  {t('cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {typeof props.item.content === 'string' &&
+                <div
+                  className='w-fit px-4 py-3 markdown-body !min-w-4 !bg-gray-100 text-base rounded-xl ml-10'
+                  style={{ maxWidth: '44rem' }}
+                >
+                  <MarkdownRender content={props.item.content} />
+                </div>}
+              {Array.isArray(props.item.content) &&
+                props.item.content.filter((i) => i.type === 'text' || i.type === 'file').map((it) => {
+                  if (it.type === 'file') {
+                    return `[File: ${it.fileName}]`;
+                  }
+                  return it.text;
+                }).join('') !== '' &&
+                <div
+                  className='w-fit px-4 py-3 markdown-body !min-w-4 !bg-gray-100 text-base rounded-xl ml-10'
+                  style={{ maxWidth: '44rem' }}
+                >
+                  <MarkdownRender content={props.item.content.filter((i) => i.type === 'text').map((it) => it.text).join('')} />
+                  {props.item.content.filter((i) => i.type === 'file').map((it, idx) => (
+                    <div key={idx} className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs flex items-center gap-1">
+                      <FileOutlined style={{ color: '#1677ff' }} />
+                      <span className="text-blue-700">{it.fileName}</span>
+                    </div>
+                  ))}
+                </div>}
+            </>
+          )}
+          {!isEditing && <div className='invisible flex flex-row-reverse pr-1 mt-1 group-hover:visible'>
             <Tooltip title={t('delete')}>
               <Popconfirm
                 title={t('deleteNotice')}
@@ -211,6 +282,18 @@ const MessageItem = memo((props: {
                   <DeleteOutlined style={{ color: 'gray' }} />
                 </Button>
               </Popconfirm>
+            </Tooltip>
+            {props.forkFromMessage && (
+              <Tooltip title={t('fork')}>
+                <Button type="text" size='small' onClick={() => props.forkFromMessage!(props.index)}>
+                  <ForkOutlined style={{ color: 'gray' }} />
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip title={t('edit')}>
+              <Button type="text" size='small' onClick={handleStartEdit}>
+                <EditOutlined style={{ color: 'gray' }} />
+              </Button>
             </Tooltip>
             <Tooltip title={t('retry')}>
               <Button type="text" size='small'
@@ -230,7 +313,7 @@ const MessageItem = memo((props: {
                 </Button>
               </Tooltip>
             </CopyToClipboard>
-          </div>
+          </div>}
         </div>
       </div>
     </div>;
@@ -262,7 +345,7 @@ const MessageItem = memo((props: {
               }
 
               {props.item.reasoninContent &&
-                <details open={true} className='text-sm mt-1 mb-4'>
+                <details open={false} className='text-sm mt-1 mb-4'>
                   <summary
                     className='flex text-xs flex-row items-center hover:bg-gray-200 text-gray-800 bg-gray-100 rounded-md p-2'
                     style={{ display: 'flex' }}
@@ -294,6 +377,10 @@ const MessageItem = memo((props: {
                       src={part.data}
                       preview={{ mask: false }}
                       style={{ maxWidth: '250px', borderRadius: '4px', boxShadow: '3px 4px 7px 0px #dedede' }} />}
+                    {part.type === 'file' && <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs flex items-center gap-1">
+                      <FileOutlined style={{ color: '#1677ff' }} />
+                      <span className="text-blue-700">{part.fileName}</span>
+                    </div>}
                   </div>)
               }
 

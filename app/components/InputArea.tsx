@@ -1,7 +1,7 @@
 'use client'
-import React, { useState, memo, useCallback, useRef, useMemo } from 'react';
+import React, { useState, memo, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Button, Tooltip, Popover, Modal, message } from "antd";
-import { PictureOutlined, ClearOutlined, FieldTimeOutlined, GlobalOutlined, ArrowUpOutlined } from '@ant-design/icons';
+import { PictureOutlined, ClearOutlined, FieldTimeOutlined, GlobalOutlined, ArrowUpOutlined, AudioOutlined, PaperClipOutlined, FileOutlined, LoadingOutlined } from '@ant-design/icons';
 import { Square } from '@icon-park/react';
 import Eraser from '@/app/images/eraser.svg';
 import McpIcon from "@/app/images/mcp.svg";
@@ -10,10 +10,12 @@ import HistorySettings from '@/app/components/HistorySettings';
 import McpServerSelect from '@/app/components/McpServerSelect';
 import ImagePreviewArea from '@/app/components/ImagePreviewArea';
 import useImageUpload from '@/app/hooks/chat/useImageUpload';
+import useFileUpload from '@/app/hooks/chat/useFileUpload';
 import useMcpServerStore from '@/app/store/mcp';
 import useGlobalConfigStore from '@/app/store/globalConfig';
 import useChatStore from '@/app/store/chat';
 import useUserSettingsStore from '@/app/store/userSettings';
+import useSpeechToText from '@/app/hooks/useSpeechToText';
 import { useTranslations } from 'next-intl';
 import { fileToBase64 } from '@/app/utils';
 import useChatContext from '@/app/context/ChatContext';
@@ -128,8 +130,24 @@ const InputArea = () => {
   const { searchEnable: remoteSearchEnable } = useGlobalConfigStore();
   const { webSearchEnabled, setWebSearchEnabled, builtInImageGen, setBuiltInImageGen } = useChatStore();
   const { uploadedImages, maxImages, handleImageUpload, removeImage, setUploadedImages } = useImageUpload();
+  const { uploadedFiles, isProcessing, handleFileUpload, removeFile, clearFiles } = useFileUpload();
+  const { isListening, isSupported, startListening, stopListening, transcript } = useSpeechToText({ lang: 'zh-CN' });
 
   const inputRef = useRef<HTMLTextAreaElement & { clearInputValue?: () => void }>(null);
+
+  // Append transcript from speech recognition to the textarea
+  useEffect(() => {
+    if (transcript && !isListening && inputRef.current) {
+      const current = inputRef.current.value || '';
+      const newValue = current ? current + ' ' + transcript : transcript;
+      // Use native setter to update the textarea value for React to pick it up
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+      if (nativeInputValueSetter) {
+        nativeInputValueSetter.call(inputRef.current, newValue);
+        inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+  }, [transcript, isListening]);
 
   const handleHistorySettingOpenChange = useCallback((open: boolean) => {
     setHistorySettingOpen(open);
@@ -152,27 +170,42 @@ const InputArea = () => {
 
   const handleSubmitMessage = useCallback(async (message: string) => {
     let messageContent;
-    if (uploadedImages.length > 0) {
-      const imageMessages = await Promise.all(uploadedImages
-        .filter(img => img.file)
-        .map(async (img) => ({
-          type: 'image' as const,
-          mimeType: img.file!.type,
-          data: await fileToBase64(img.file!)
-        })));
-
-      messageContent = [
-        { type: 'text' as const, text: message },
-        ...imageMessages
+    if (uploadedImages.length > 0 || uploadedFiles.length > 0) {
+      const parts: Array<{ type: 'text' | 'image' | 'file'; text?: string; mimeType?: string; data?: string; fileName?: string; fileContent?: string }> = [
+        { type: 'text', text: message },
       ];
+
+      if (uploadedImages.length > 0) {
+        const imageMessages = await Promise.all(uploadedImages
+          .filter(img => img.file)
+          .map(async (img) => ({
+            type: 'image' as const,
+            mimeType: img.file!.type,
+            data: await fileToBase64(img.file!)
+          })));
+        parts.push(...imageMessages);
+      }
+
+      if (uploadedFiles.length > 0) {
+        for (const file of uploadedFiles) {
+          parts.push({
+            type: 'file' as const,
+            fileName: file.fileName,
+            fileContent: file.fileContent,
+          });
+        }
+      }
+
+      messageContent = parts;
     } else {
       messageContent = message;
     }
 
     handleSubmit(messageContent).then(() => {
       setUploadedImages([]);
+      clearFiles();
     });
-  }, [uploadedImages, handleSubmit, setUploadedImages]);
+  }, [uploadedImages, uploadedFiles, handleSubmit, setUploadedImages, clearFiles]);
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (e.clipboardData.files.length > 0) {
@@ -242,6 +275,29 @@ const InputArea = () => {
         uploadedImages={uploadedImages}
         removeImage={removeImage}
       />
+      {/* File preview area */}
+      {uploadedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 container mx-auto max-w-3xl px-4 py-1">
+          {uploadedFiles.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs"
+            >
+              <FileOutlined style={{ color: '#1677ff' }} />
+              <span className="text-gray-700 max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap">{file.fileName}</span>
+              <Button
+                type="text"
+                size="small"
+                onClick={() => removeFile(index)}
+                className="ml-1"
+                style={{ minWidth: 'auto', padding: '0 2px' }}
+              >
+                <ClearOutlined style={{ color: '#999', fontSize: '10px' }} />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="flex h-36 pb-3 container bg-white mx-auto justify-center pt-1 px-2">
         {contextHolder}
         <div className='flex mx-2 mt-0 h-full flex-col w-full border max-w-3xl border-gray-200 rounded-2xl'>
@@ -253,6 +309,14 @@ const InputArea = () => {
           />
           <div className='flex flex-row justify-between h-10 max-w-3xl w-full relative p-2'>
             <div className='flex flex-row'>
+              {/* File upload button */}
+              <Tooltip title={t('uploadFile')} placement='bottom' arrow={false}>
+                <Button type="text" size='small' onClick={handleFileUpload} disabled={isProcessing}>
+                  {isProcessing ? <LoadingOutlined style={{ color: '#1677ff' }} /> : <PaperClipOutlined style={{ color: 'gray' }} />}
+                  <span className='text-xs -ml-1 text-gray-500 hidden sm:inline'>{isProcessing ? t('fileProcessing') : t('uploadFile')}</span>
+                </Button>
+              </Tooltip>
+
               {currentModel.supportVision && (
                 <Tooltip title={t('image')} placement='bottom' arrow={false}>
                   <Button type="text" size='small' onClick={() => handleImageUpload()}>
@@ -327,7 +391,20 @@ const InputArea = () => {
               </Tooltip>
             </div>
 
-            <div>
+            <div className='flex items-center gap-1'>
+              {isSupported && responseStatus === 'done' && (
+                <Tooltip title={isListening ? t('listening') : t('voiceInput')} placement='bottom' arrow={false}>
+                  <Button
+                    type={isListening ? 'primary' : 'text'}
+                    size='small'
+                    shape="circle"
+                    onClick={isListening ? stopListening : startListening}
+                    className={isListening ? 'animate-pulse' : ''}
+                    style={isListening ? { backgroundColor: '#ff4d4f', borderColor: '#ff4d4f' } : {}}
+                    icon={<AudioOutlined style={isListening ? { color: '#fff' } : { color: 'gray' }} />}
+                  />
+                </Tooltip>
+              )}
               {responseStatus === 'done' && (
                 <Button
                   type="primary"

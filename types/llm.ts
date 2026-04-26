@@ -24,6 +24,16 @@ export type ChatType = {
   prompt?: string;
   createdAt: Date;
   starAt?: Date;
+  folderId?: number | null;
+}
+
+export type ChatFolderType = {
+  id: number;
+  userId: string;
+  name: string;
+  sortOrder?: number | null;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
 }
 
 export type Message = {
@@ -39,6 +49,11 @@ export type Message = {
       type: 'image';
       mimeType: string;
       data: string;
+    }
+    | {
+      type: 'file';
+      fileName: string;
+      fileContent: string;
     }
   >;
   reasoninContent?: string;
@@ -89,6 +104,11 @@ export type MessageContent = string | Array<
     mimeType: string;
     data: string;
   }
+  | {
+    type: 'file';
+    fileName: string;
+    fileContent: string;
+  }
 >;
 
 export interface RequestMessage {
@@ -97,6 +117,8 @@ export interface RequestMessage {
   tool_call_id?: string;
 }
 
+export type ThinkingIntensity = 'none' | 'low' | 'medium' | 'high';
+
 export interface LLMConfig {
   model: string;
   temperature?: number;
@@ -104,6 +126,7 @@ export interface LLMConfig {
   stream?: boolean;
   presence_penalty?: number;
   frequency_penalty?: number;
+  thinkingIntensity?: ThinkingIntensity;
 }
 
 export interface LLMUsage {

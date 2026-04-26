@@ -6,6 +6,7 @@ import {
   text,
   primaryKey,
   integer,
+  serial,
   varchar,
   json,
   date,
@@ -167,6 +168,15 @@ export const llmModels = pgTable("models", {
 export const avatarType = pgEnum('avatar_type', ['emoji', 'url', 'none']);
 export const historyType = pgEnum('history_type', ['all', 'count', 'none']);
 
+export const chatFolders = pgTable('chat_folders', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const chats = pgTable("chats", {
   id: text("id")
     .primaryKey()
@@ -185,6 +195,7 @@ export const chats = pgTable("chats", {
   avatarType: avatarType('avatar_type').notNull().default('none'),
   prompt: text(),
   starAt: timestamp('star_at'),
+  folderId: integer('folder_id'),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
   totalTokens: integer('total_tokens').notNull().default(0),
@@ -209,6 +220,11 @@ export const messages = pgTable("messages", {
       type: 'image';
       mimeType: string;
       data: string;
+    }
+    | {
+      type: 'file';
+      fileName: string;
+      fileContent: string;
     }
   >>(),
   reasoninContent: text('reasonin_content'),

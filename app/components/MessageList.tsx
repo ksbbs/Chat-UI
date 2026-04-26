@@ -37,6 +37,8 @@ export const MessageList = (props: { chat_id: string }) => {
     deleteMessage,
     addBreak,
     retryMessage,
+    editMessage,
+    forkFromMessage,
     stopChat,
     clearHistory,
     setIsUserScrolling,
@@ -173,6 +175,8 @@ export const MessageList = (props: { chat_id: string }) => {
           index={index}
           retryMessage={retryMessage}
           deleteMessage={deleteMessage}
+          editMessage={editMessage}
+          forkFromMessage={forkFromMessage}
         />
       );
     });

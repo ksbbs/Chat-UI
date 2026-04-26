@@ -1,0 +1,13 @@
+{
+  "name": "HiveChat",
+  "short_name": "HiveChat",
+  "description": "Team-oriented AI chat application",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1677ff",
+  "icons": [
+    { "src": "/icons/icon-192.svg", "type": "image/svg+xml", "sizes": "192x192" },
+    { "src": "/icons/icon-512.svg", "type": "image/svg+xml", "sizes": "512x512" }
+  ]
+}

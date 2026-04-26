@@ -25,7 +25,12 @@ export async function POST(req: NextRequest) {
     const xChatId = userRequestHeaders.get('x-chat-id');           //对话时必填，测试时不需要
     const xEndpoint = userRequestHeaders.get('X-Endpoint');        //选填，测试 URL 时需要
 
-    const isUserWithinQuotaResult = await isUserWithinQuota(userId, xProvider, xModel);
+    // 并行执行配额检查和配置获取，减少串行延迟
+    const [isUserWithinQuotaResult, configResult] = await Promise.all([
+      isUserWithinQuota(userId, xProvider, xModel),
+      getLlmConfigByProvider(xProvider || 'openai'),
+    ]);
+
     if (!isUserWithinQuotaResult.tokenPassFlag) {
       return new Response(JSON.stringify({ error: 'Out of quota' }), {
         status: 459,
@@ -40,7 +45,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { endpoint, apikey, apiStyle } = await getLlmConfigByProvider(xProvider || 'openai');
+    const { endpoint, apikey, apiStyle } = configResult;
     // 测试连接下，会传 X-apikey，优先使用
     const realApikey = userRequestHeaders.get('X-Apikey') || apikey;
     let realEndpoint = '';

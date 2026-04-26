@@ -54,6 +54,11 @@ export default class OpenAIResponseApi implements LLMApi {
                 image_url: item.data, // 支持 base64 或 url
                 detail: 'auto',
               });
+            } else if (item.type === 'file') {
+              contentArr.push({
+                type: contentType,
+                text: `[File: ${item.fileName}]\n${item.fileContent}\n\n`,
+              });
             }
           }
         }

@@ -3,6 +3,14 @@ import { llmSettingsTable } from '@/app/db/schema';
 import { db } from '@/app/db';
 import { eq } from 'drizzle-orm';
 
+// 内存缓存，减少每次请求的 DB 查询
+const configCache = new Map<string, { data: any; expiry: number }>();
+const CACHE_TTL = 60 * 1000; // 1 分钟缓存
+
+export function clearLlmConfigCache() {
+  configCache.clear();
+}
+
 export async function getLlmOriginConfigByProvider(providerId: string) {
   try {
     const result = await db.query.llmSettingsTable.findFirst({
@@ -32,27 +40,34 @@ export async function getLlmOriginConfigByProvider(providerId: string) {
 }
 
 export async function getLlmConfigByProvider(providerId: string) {
+  const cached = configCache.get(providerId);
+  if (cached && Date.now() < cached.expiry) {
+    return cached.data;
+  }
+
   try {
     const result = await db.query.llmSettingsTable.findFirst({
       where: eq(llmSettingsTable.provider, providerId),
     });
     const endpoint = result?.endpoint;
+    let data;
     if (result) {
-      return {
+      data = {
         endpoint,
         isActive: result.isActive,
         apiStyle: result.apiStyle,
         apikey: result.apikey
       };
     } else {
-      return {
+      data = {
         endpoint,
         isActive: false,
-        apiStyle: 'oepnai',
+        apiStyle: 'openai',
         apikey: null
       };
     }
-
+    configCache.set(providerId, { data, expiry: Date.now() + CACHE_TTL });
+    return data;
   } catch (error) {
     throw new Error('query user list fail');
   }

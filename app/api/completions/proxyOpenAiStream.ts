@@ -134,6 +134,7 @@ export default async function proxyOpenAiStream(response: Response,
         }
         controller.enqueue(value);
       }
+      // 先关闭流，再执行 DB 写入，避免阻塞客户端
       // 有 ChatId 的存储到 messages 表
       if (messageInfo.chatId) {
         const toAddMessage = {
@@ -148,8 +149,8 @@ export default async function proxyOpenAiStream(response: Response,
           model: messageInfo.model,
           providerId: messageInfo.providerId,
         }
+        // 先发 metadata 事件让客户端知道流结束
         const id = await addMessageInServer(toAddMessage);
-        // 发送一个自定义的消息，包含消息ID
         const metadataEvent = {
           isDone: true,
           messageId: id
@@ -157,6 +158,8 @@ export default async function proxyOpenAiStream(response: Response,
         const metadataString = `data: ${JSON.stringify({ metadata: metadataEvent })}\n\n`;
         controller.enqueue(new TextEncoder().encode(metadataString));
       }
+      controller.close();
+      // 流关闭后异步更新用量，不阻塞客户端
       updateUsage(messageInfo.userId, {
         chatId: messageInfo.chatId,
         date: new Date().toISOString().split('T')[0],
@@ -167,7 +170,6 @@ export default async function proxyOpenAiStream(response: Response,
         outputTokens: completionTokens || 0,
         totalTokens: totalTokens || 0,
       });
-      controller.close();
     }
   });
 
