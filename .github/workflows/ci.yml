@@ -54,6 +54,9 @@ jobs:
     - name: 类型检查
       run: npx tsc --noEmit --incremental
 
+    - name: 运行测试
+      run: npm test
+
   build:
     name: 构建应用程序
     runs-on: ubuntu-latest
